@@ -1,5 +1,5 @@
 #!/bin/bash
-. ./kube.conf
+. ../etc/kube.conf
 
 # More reading for dns
 # https://github.com/kubernetes-sigs/external-dns
