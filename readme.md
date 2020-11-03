@@ -6,7 +6,7 @@ This is a brief introduction to [kubernetes](https://kubernetes.io/).
 
 ## Install kubernetes
 
-I will assume you are using a recent (18.04+) version of ubuntu.  If you are using some other version of linux or unix then good on you.  These instructions will probably work for you, too.  Windows see [here].
+I will assume you are using a recent (18.04+) version of ubuntu.  If you are using some other version of linux or unix then good on you.  These instructions will probably work for you, too.  Windows see [here](https://kubernetes.io/docs/setup/production-environment/windows/).
 
 You must already have containerd and Docker installed.  See [here](https://kubernetes.io/docs/setup/production-environment/container-runtimes/) for some more information.
 
@@ -18,7 +18,7 @@ We'll build a single node kubernetes master cluster with permission to act like 
 
 We start by gathering some basic details about what our node will manage.  We specify the internal ip range for the [load balancer](https://metallb.universe.tf/).
 
-Build the file [kube.conf](../etc/kube.conf) which is
+Build the file [kube.conf](https://raw.githubusercontent.com/dooleydiligent/kubernetes-demo/master/etc/kube.conf) which is
 ```
 BASE="/mnt/disks/k8s-storage"
 DOMAIN=example.com
@@ -28,15 +28,15 @@ NSIP=172.20.1.1
 ```
 - BASE
 
-the path to somewhere on the pod where you will grant the pod access to your server's disk.  In the real internet these are S3 buckets or other network attached storage.  In abstract terms it is a file system.  
+the path to somewhere on the node where you will grant the pods access to your server's disk.  In the real internet these are S3 buckets or other network attached storage.  In abstract terms it is a file system.  In this demo it is just a disk.
 
 - DOMAIN
 
-how the pod will know itself.  Ultimately we expect the pod to be able to handle authoritative DNS queries.  This can be a subdomain of the larger local network, or it can manage the local network.
+how the cluster will know itself.  Ultimately we expect the cluster to be able to handle authoritative DNS queries.  This can be a subdomain of the larger local network, or it can manage the local network.
 
 - METALLBRANGE
 
-An otherwise made up range of IP's that your cluster will manage.  In a multi-pod cluster this could be fairly wide network.  These will be externally routeable - meaning that the cluster will advertise an IP for a service to the external internet, and will route that traffic in toward it's deployed service.  In this single node cluster that means nothing.  In a private network it means on-premesis cloud.  In the cloud it means part of a [VPC](https://www.ibm.com/cloud/vpc).
+An otherwise made up range of IP's that your cluster will manage.  In a multi-pod cluster this could be fairly wide network.  These will be externally routeable - meaning that the cluster will advertise an IP for a service to the external internet/local intranet, and will route that traffic in toward it's deployed services.  In this single node cluster that means nothing.  In a private network it means on-premesis cloud.  In the cloud it means part of a [VPC](https://www.ibm.com/cloud/vpc).
 
 
 - PODNET
@@ -45,7 +45,7 @@ An equally made up range of IP's that the kube will manage.  These are internal 
 
 - NSIP
 
-This is the IP of the first server we'll deploy.  It will be a nameserver running BIND9.  Together with [external-dns](https://github.com/kubernetes-sigs/external-dns/blob/master/README.md) it will expose the node's internal services for lookup on the local network managed by the node using [DDNS](https://tools.ietf.org/html/rfc2136) specifications.
+This is the IP of the first server we'll deploy.  It will be a nameserver running BIND9.  Together with [external-dns](https://github.com/kubernetes-sigs/external-dns/blob/master/README.md) it will expose the node's internal services for lookup on the local network using [DDNS](https://tools.ietf.org/html/rfc2136) specifications.
 
 ## Reset
 
@@ -112,7 +112,8 @@ fi
 kubectl apply -f metallb.yaml
 ```
 Create a secret for metallb
-```kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+```
+kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
 ```
 Install the [kubernetes dashboard](https://github.com/kubernetes/dashboard/blob/master/README.md)
 ```
