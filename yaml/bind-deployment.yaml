@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bind-var-store
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+# Note that path is extended from ${BASE} in kube.conf
+# You could generate this section in script to prevent hard coding
+  hostPath:
+    path: "/mnt/disks/k8s-storage/bind/var"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bind-var-store
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: named-conf-options
+data:
+  named.conf.options: |
+    options {
+      directory "/var/cache/bind";
+      version "";
+      listen-on    { any; };
+      pid-file "/var/run/named/named.pid";
+      allow-query { any; };
+      allow-transfer { none; };
+      recursion no;
+      auth-nxdomain no;
+    };
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bind-service
+  labels:
+    app: bind-service
+spec:
+  type: LoadBalancer
+  ports:
+  - protocol: TCP
+    port: 53
+    targetPort: 53
+  selector:
+    app: bind-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bind-service
+  labels:
+    app: bind-service
+spec:
+  selector:
+    matchLabels:
+      app: bind-service
+  template:
+    metadata:
+      labels:
+        app: bind-service
+    spec:
+      containers:
+      - name: bind-service
+        image: ventz/bind:9.16.6-r0
+        ports:
+        - containerPort: 53
+        volumeMounts:
+        - name: bind-var-store
+          mountPath: "/var/cache/bind"
+        - name: named-conf
+          mountPath: "/etc/bind/named.conf"
+          subPath: named.conf
+          readOnly: true
+        - name: bind-etc-store
+          mountPath: "/etc/bind/named.conf.local"
+          subPath: named.conf.local
+          readOnly: true
+        - name: named-conf-options
+          mountPath: "/etc/bind/named.conf.options"
+          subPath: named.conf.options
+          readOnly: true
+      volumes:
+      - name: bind-var-store
+        persistentVolumeClaim:
+          claimName: bind-var-store
+      - name: named-conf
+        configMap:
+          name: named-conf
+          items:
+          - key: named.conf
+            path: named.conf
+      - name: bind-etc-store
+        configMap:
+          name: named-conf-local
+          items:
+          - key: named.conf.local
+            path: named.conf.local
+      - name: named-conf-options
+        configMap:
+          name: named-conf-options
+          items:
+          - key: named.conf.options
+            path: named.conf.options
