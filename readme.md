@@ -21,10 +21,9 @@ We start by gathering some basic details about what our node will manage.  We sp
 Build the file [kube.conf](https://raw.githubusercontent.com/dooleydiligent/kubernetes-demo/master/etc/kube.conf) which is
 ```
 BASE="/mnt/disks/k8s-storage"
-DOMAIN=example.com
+DOMAIN=example.kubernetes.cluster.domain
 METALLBRANGE=172.20.1.0/24
 PODNET=10.244.0.0/16
-NSIP=172.20.1.1
 ```
 - BASE
 
@@ -43,10 +42,6 @@ An otherwise made up range of IP's that your cluster will manage.  In a multi-po
 
 An equally made up range of IP's that the kube will manage.  These are internal IP addresses that are only reachable from 'within' the cluster.
 
-- NSIP
-
-This is the IP of the first server we'll deploy.  It will be a nameserver running BIND9.  Together with [external-dns](https://github.com/kubernetes-sigs/external-dns/blob/master/README.md) it will expose the node's internal services for lookup on the local network using [DDNS](https://tools.ietf.org/html/rfc2136) specifications.
-
 ## Reset
 
 I don't recommend minikube because you'll end up having to learn the difference between the two.  Just use kubectl, and be done with it.  Work in a bare-metal sandbox with access to the internet.  Leave your desktop behind.
@@ -57,12 +52,10 @@ We will build a script to fully reset kubernetes from scratch and then reinitial
 Read the contents of kube.conf
 ```
 #!/bin/bash
-. ./kube.conf
+[ ! -f ./etc/kube.conf ] && echo "This expects to be run from the root of the repository" && exit 0
+
+. ./etc/kube.conf
 ```
-Get the IP of the host we're working on.
-
-```IP=$(ip -o addr show up primary scope global | head -1 | sed 's,/, ,g' | awk '{print $4}')```
-
 Reset kubeadm
 ```
 sudo kubeadm reset -f
@@ -78,10 +71,18 @@ Stop the kubelet service
 ```
 sudo systemctl stop kubelet.service
 ```
-Purge any previous installation and reinitialize
+Purge any previous installation and reinitialize.  First time initialization takes time to download the images.
 ```
 sudo rm -rf /etc/kubernetes ~/.kube/config ~/.kube/cache /var/lib/etcd /var/lib/kubelet /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni /etc/cni/net.d
 sudo swapoff -a
+```
+Get the IP of the host we're working on.
+
+```
+IP=$(ip -o addr show up primary scope global | head -1 | sed 's,/, ,g' | awk '{print $4}')
+```
+Reinitialize kubernetes
+```
 sudo kubeadm init --apiserver-advertise-address ${IP} --pod-network-cidr=${PODNET} 
 
 mkdir -p $HOME/.kube
@@ -89,27 +90,31 @@ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 ```
-Reinstall [flannel](https://github.com/coreos/flannel/blob/master/README.md)
-```
-if [ ! -f flannel.yaml ]; then
-  curl -qso flannel.yaml https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-fi
-kubectl apply -f flannel.yaml
-```
 Allow the master node to act as a compute node
 ```
 kubectl taint nodes --all node-role.kubernetes.io/master-
 ```
-Install [MetalLb](https://metallb.universe.tf/)
+
+Reinstall [flannel](https://github.com/coreos/flannel/blob/master/README.md)
+
+The first time you *apply* a deployment or pod it will usually take a while to download the images.
 ```
-if [ ! -f metallb-namespace.yaml ]; then
-  curl -qso metallb-namespace.yaml https://raw.githubusercontent.com/metallb/metallb/v0.9.4/manifests/namespace.yaml
+if [ ! -f ./yaml/flannel.yaml ]; then
+  curl -qso ./yaml/flannel.yaml https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
 fi
-kubectl apply -f metallb-namespace.yaml
-if [ ! -f metallb.yaml ]; then
-  curl -qso metallb.yaml https://raw.githubusercontent.com/metallb/metallb/v0.9.4/manifests/metallb.yaml
+kubectl apply -f ./yaml/flannel.yaml
+```
+Install [MetalLb](https://metallb.universe.tf/).
+```
+if [ ! -f ./yaml/metallb-namespace.yaml ]; then
+  curl -qso ./yaml/metallb-namespace.yaml https://raw.githubusercontent.com/metallb/metallb/v0.9.4/manifests/namespace.yaml
 fi
-kubectl apply -f metallb.yaml
+kubectl apply -f ./yaml/metallb-namespace.yaml
+
+if [ ! -f ./yaml/metallb.yaml ]; then
+  curl -qso ./yaml/metallb.yaml https://raw.githubusercontent.com/metallb/metallb/v0.9.4/manifests/metallb.yaml
+fi
+kubectl apply -f ./yaml/metallb.yaml
 ```
 Create a secret for metallb
 ```
@@ -117,10 +122,10 @@ kubectl create secret generic -n metallb-system memberlist --from-literal=secret
 ```
 Install the [kubernetes dashboard](https://github.com/kubernetes/dashboard/blob/master/README.md)
 ```
-if [ ! -f dashboard.yaml ]; then
-  curl -qso dashboard.yaml https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.4/aio/deploy/recommended.yaml
+if [ ! -f ./yaml/dashboard.yaml ]; then
+  curl -qso ./yaml/dashboard.yaml https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.4/aio/deploy/recommended.yaml
 fi
-kubectl apply -f dashboard.yaml
+kubectl apply -f ./yaml/dashboard.yaml
 ```
 Expose the dashboard to the loadbalancer.  The default installation of the dashboard is only exposed on localhost.  This allows us to view the dashboard from another location on the network.
 ```
@@ -179,3 +184,5 @@ kubectl -n kubernetes-dashboard get service kubernetes-dashboard
 ```
 
 Now you are all reset.
+
+### [Task 1](https://github.com/dooleydiligent/kubernetes-demo/tree/master/docs/bind.md) Install BIND
