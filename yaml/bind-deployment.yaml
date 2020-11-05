@@ -13,7 +13,7 @@ spec:
 # Note that path is extended from ${BASE} in kube.conf
 # You could generate this section in script to prevent hard coding
   hostPath:
-    path: "/mnt/disks/k8s-storage/bind/var"
+    path: "/mnt/disks/k8s-storage/bind"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -26,38 +26,6 @@ spec:
   resources:
     requests:
       storage: 1Gi
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: named-conf-options
-data:
-  named.conf.options: |
-    options {
-      directory "/var/cache/bind";
-      version "";
-      listen-on    { any; };
-      pid-file "/var/run/named/named.pid";
-      allow-query { any; };
-      allow-transfer { none; };
-      recursion no;
-      auth-nxdomain no;
-    };
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: bind-service
-  labels:
-    app: bind-service
-spec:
-  type: LoadBalancer
-  ports:
-  - protocol: TCP
-    port: 53
-    targetPort: 53
-  selector:
-    app: bind-service
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -116,3 +84,18 @@ spec:
           items:
           - key: named.conf.options
             path: named.conf.options
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bind-service
+  labels:
+    app: bind-service
+spec:
+  type: LoadBalancer
+  ports:
+  - protocol: TCP
+    port: 53
+    targetPort: 53
+  selector:
+    app: bind-service

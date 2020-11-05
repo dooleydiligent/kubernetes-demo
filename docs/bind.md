@@ -28,7 +28,7 @@ fi
 ```
 Create the k8s subdomain in the ${DOMAIN} declared in kube.conf.
 ```
-cat <<EOF > ./${DOMAIN}.k8.zone
+cat <<EOF > ./${DOMAIN}.k8s.zone
 $TTL 60 ; 1 minute
 k8s.${DOMAIN}         IN SOA  k8s.${DOMAIN}. root.k8s.${DOMAIN}. (
                                 16         ; serial
@@ -43,7 +43,7 @@ EOF
 ```
 Now move it to a location where a node deployment can access it
 ```
-sudo mv ${DOMAIN}.k8.zone ${BASE}/bind/var/${DOMAIN}.k8.zone
+sudo mv ${DOMAIN}.k8s.zone ${BASE}/bind/var/${DOMAIN}.k8s.zone
 ```
 Give this mount to the bind user
 ```
@@ -60,7 +60,7 @@ data:
   named.conf.local: |
     include "/etc/bind/named.conf.default-zones";
     include "/etc/bind/named.conf.rfc1918";
-    include "/var/cache/bind/k8.zone";
+    include "/var/cache/bind/k8s.zone";
 EOF
 ```
 Now create the bind service deployment.  This will take some time as the docker images must be downloaded.  Get a cup of coffee.
