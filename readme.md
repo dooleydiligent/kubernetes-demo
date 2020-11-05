@@ -21,10 +21,9 @@ We start by gathering some basic details about what our node will manage.  We sp
 Build the file [kube.conf](https://raw.githubusercontent.com/dooleydiligent/kubernetes-demo/master/etc/kube.conf) which is
 ```
 BASE="/mnt/disks/k8s-storage"
-DOMAIN=example.com
+DOMAIN=example.kubernetes.cluster.domain
 METALLBRANGE=172.20.1.0/24
 PODNET=10.244.0.0/16
-NSIP=172.20.1.1
 ```
 - BASE
 
@@ -43,10 +42,6 @@ An otherwise made up range of IP's that your cluster will manage.  In a multi-po
 
 An equally made up range of IP's that the kube will manage.  These are internal IP addresses that are only reachable from 'within' the cluster.
 
-- NSIP
-
-This is the IP of the first server we'll deploy.  It will be a nameserver running BIND9.  Together with [external-dns](https://github.com/kubernetes-sigs/external-dns/blob/master/README.md) it will expose the node's internal services for lookup on the local network using [DDNS](https://tools.ietf.org/html/rfc2136) specifications.
-
 ## Reset
 
 I don't recommend minikube because you'll end up having to learn the difference between the two.  Just use kubectl, and be done with it.  Work in a bare-metal sandbox with access to the internet.  Leave your desktop behind.
@@ -57,12 +52,10 @@ We will build a script to fully reset kubernetes from scratch and then reinitial
 Read the contents of kube.conf
 ```
 #!/bin/bash
-. ./kube.conf
+[ ! -f ./etc/kube.conf ] && echo "This expects to be run from the root of the repository" && exit 0
+
+. ./etc/kube.conf
 ```
-Get the IP of the host we're working on.
-
-```IP=$(ip -o addr show up primary scope global | head -1 | sed 's,/, ,g' | awk '{print $4}')```
-
 Reset kubeadm
 ```
 sudo kubeadm reset -f
@@ -82,6 +75,14 @@ Purge any previous installation and reinitialize.  First time initialization tak
 ```
 sudo rm -rf /etc/kubernetes ~/.kube/config ~/.kube/cache /var/lib/etcd /var/lib/kubelet /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni /etc/cni/net.d
 sudo swapoff -a
+```
+Get the IP of the host we're working on.
+
+```
+IP=$(ip -o addr show up primary scope global | head -1 | sed 's,/, ,g' | awk '{print $4}')
+```
+Reinitialize kubernetes
+```
 sudo kubeadm init --apiserver-advertise-address ${IP} --pod-network-cidr=${PODNET} 
 
 mkdir -p $HOME/.kube
@@ -89,6 +90,11 @@ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 ```
+Allow the master node to act as a compute node
+```
+kubectl taint nodes --all node-role.kubernetes.io/master-
+```
+
 Reinstall [flannel](https://github.com/coreos/flannel/blob/master/README.md)
 
 The first time you *apply* a deployment or pod it will usually take a while to download the images.
@@ -97,10 +103,6 @@ if [ ! -f ./yaml/flannel.yaml ]; then
   curl -qso ./yaml/flannel.yaml https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
 fi
 kubectl apply -f ./yaml/flannel.yaml
-```
-Allow the master node to act as a compute node
-```
-kubectl taint nodes --all node-role.kubernetes.io/master-
 ```
 Install [MetalLb](https://metallb.universe.tf/).
 ```

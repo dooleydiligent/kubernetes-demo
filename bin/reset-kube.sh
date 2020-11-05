@@ -6,8 +6,6 @@
 # More reading for dns
 # https://github.com/kubernetes-sigs/external-dns
 
-PODNET=${PODNET}
-
 sudo kubeadm reset -f
 PROCIDS=`docker ps | grep k8s`
 if [ ! -z "${PROCIDS}" ]; then

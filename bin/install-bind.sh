@@ -21,6 +21,10 @@ if [ ! -d "${BASE}/bind" ]; then
   exit 0
 fi
 
+# We'll download the container in advance so that we can generate a proper key
+echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
+EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
+
 # Create a named.conf configMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -29,10 +33,11 @@ metadata:
   name: named-conf
 data:
   named.conf: |
+    ${EXTERNALDNSKEY}
     controls {
-      inet 0.0.0.0 allow { any; } keys { "rndc-key"; };
+      inet 0.0.0.0 allow { any; } keys { "externaldns"; };
     };
-    include "/etc/bind/rndc.key";
+    // include "/etc/bind/rndc.key";
     include "/etc/bind/named.conf.options";
     include "/etc/bind/named.conf.local";
 EOF
@@ -74,6 +79,7 @@ EOF
 # Move the zone file into place
 sudo mv k8s.zone ${BASE}/bind/k8s.zone
 
+# NOTE: We are supplying the expected IP for the nameserver here.  It will be updated later
 cat <<EOF > ./${DOMAIN}.k8s.zone
 \$TTL 60 ; 1 minute
 @        IN SOA  k8s.${DOMAIN}. root.k8s.${DOMAIN}. (
@@ -84,28 +90,11 @@ cat <<EOF > ./${DOMAIN}.k8s.zone
              60         ; minimum (1 minute)
              )
              NS      ns.k8s.${DOMAIN}.
-ns           A       ${NSIP}
+ns           A       172.20.1.1
 EOF
 sudo mv ${DOMAIN}.k8s.zone ${BASE}/bind/${DOMAIN}.k8s.zone
 # give this mount to the bind user
 sudo chown -R  100:101 ${BASE}/bind/
-
-# We'll download the container in advance so that we can generate a proper key
-#EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
-
-#EXTERNALDNSKEY=`echo '      key "externaldns" { \
-#      algorithm hmac-sha256; \
-#      secret "V7v+l6mbU6Mw0lS1iCj4Zi6ycNbR89tkNha8GkCAeCY="; \
-#      };'`
-
-#cat <<EOF | kubectl apply -f -
-#apiVersion: v1
-#kind: Namespace
-#metadata:
-#  name: external-dns
-#  labels:
-#    name: external-dns
-#EOF
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -118,20 +107,18 @@ data:
     include "/etc/bind/named.conf.rfc1918";
     include "/var/cache/bind/k8s.zone";
 EOF
-# NOTE:  Under 'include' above, we will add ${EXTERNALDNSKEY} sometime later
-kubectl delete service bind-service >> /dev/null
+RESET=$(kubectl get services | grep 'bind-service')
+if [ ! -z "${RESET}" ]; then
+  kubectl delete service bind-service
+fi
 kubectl apply -f yaml/bind-deployment.yaml
 kubectl expose deployment bind-service --type=LoadBalancer --name=bind-service
 
-#kubectl get service bind-service
-
 #kubectl logs `kubectl get pods | grep bind | awk '{print $1}'`
 
-# nslookup ns.k8s.joeandlane.com. 10.244.0.7
-
 kubectl describe services bind-service
+sleep 3
 NSIP=$(kubectl describe services bind-service | grep 'LoadBalancer Ingress' | awk '{print $3}')
 echo Attempting to lookup the nameserver on ${NSIP}
 echo nslookup ns.k8s.${DOMAIN} ${NSIP}
-sleep 3
 nslookup ns.k8s.${DOMAIN} ${NSIP}

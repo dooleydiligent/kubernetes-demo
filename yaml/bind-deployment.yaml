@@ -46,12 +46,9 @@ spec:
         - name: bind-service
           image: ventz/bind:9.16.6-r0
           ports:
-            - name: domain
+            - name: domain-udp
               containerPort: 53
               protocol: UDP
-            - name: domain
-              containerPort: 53
-              protocol: TCP
           volumeMounts:
             - name: bind-var-store
               mountPath: "/var/cache/bind"
