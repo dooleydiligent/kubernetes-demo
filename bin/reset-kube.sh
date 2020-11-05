@@ -18,6 +18,8 @@ sudo rm -rf /etc/kubernetes ~/.kube/config ~/.kube/cache /var/lib/etcd /var/lib/
 sudo swapoff -a
 IP=$(ip -o addr show up primary scope global | grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
 
+echo Using external IP ${IP}
+
 sudo kubeadm init --apiserver-advertise-address ${IP} --pod-network-cidr=${PODNET} 
 
 mkdir -p $HOME/.kube

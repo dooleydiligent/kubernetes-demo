@@ -119,12 +119,19 @@ data:
     include "/var/cache/bind/k8s.zone";
 EOF
 # NOTE:  Under 'include' above, we will add ${EXTERNALDNSKEY} sometime later
+kubectl delete service bind-service >> /dev/null
 kubectl apply -f yaml/bind-deployment.yaml
-sleep 3
-kubectl get service bind-service
-# -n external-dns
+kubectl expose deployment bind-service --type=LoadBalancer --name=bind-service
 
-kubectl logs `kubectl get pods | grep bind | awk '{print $1}'`
+#kubectl get service bind-service
 
+#kubectl logs `kubectl get pods | grep bind | awk '{print $1}'`
 
 # nslookup ns.k8s.joeandlane.com. 10.244.0.7
+
+kubectl describe services bind-service
+NSIP=$(kubectl describe services bind-service | grep 'LoadBalancer Ingress' | awk '{print $3}')
+echo Attempting to lookup the nameserver on ${NSIP}
+echo nslookup ns.k8s.${DOMAIN} ${NSIP}
+sleep 3
+nslookup ns.k8s.${DOMAIN} ${NSIP}
