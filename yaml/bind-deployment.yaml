@@ -64,6 +64,10 @@ spec:
               mountPath: "/etc/bind/named.conf.options"
               subPath: named.conf.options
               readOnly: true
+            - name: rndc-key
+              mountPath: "/etc/rndc.key"
+              subPath: rndc.key
+              readOnly: true
       volumes:
         - name: bind-var-store
           persistentVolumeClaim:
@@ -86,3 +90,9 @@ spec:
             items:
               - key: named.conf.options
                 path: named.conf.options
+        - name: rndc-key
+          configMap:
+            name: rndc-key
+            items:
+              - key: rndc.key
+                path: rndc.key

@@ -3,7 +3,9 @@ kind: Service
 metadata:
   name: nginx
   annotations:
-    external-dns.alpha.kubernetes.io/hostname: svc.kubernetes.cluster
+    external-dns.alpha.kubernetes.io/hostname: nginx.k8s.kubernetes.cluster
+    external-dns.alpha.kubernetes.io/ttl: "300"
+    external-dns.alpha.kubernetes.io/access: private
 spec:
   type: LoadBalancer
   ports:

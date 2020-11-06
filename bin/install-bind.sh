@@ -4,6 +4,10 @@
 . ./etc/kube.conf
 
 #set -x
+#DIG=$(which dig)
+#if [ -z "${DIG}" ]; then
+#  echo You must have dig to test the bind installation properly
+#fi
 
 if [ -z "${BASE}" ]; then
   echo BASE is not set in ./kube.conf
@@ -23,11 +27,12 @@ fi
 
 # We'll download the container in advance so that we can generate a proper key
 echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
-EDNS=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns)
-EXTERNALDNSKEY=$(echo ${EDNS} | sed 's/\t/      /g' | sed 's/};/      };/g')
-SECRET=$(echo ${EDNS}| awk '{print $7}' | sed 's/"//g')
-#echo SECRET is ${SECRET}
-#echo EDNS is ${EDNS}
+EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
+SECRET=$(echo ${EXTERNALDNSKEY} | sed 's/"/ /'g | awk '{print $7}')
+IFEXISTS=$(kubectl get configmap | grep named-conf)
+if [ ! -z "${IFEXISTS}" ]; then 
+  kubectl delete configmap named-conf
+fi
 # Create a named.conf configMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -44,6 +49,25 @@ data:
     include "/etc/bind/named.conf.options";
     include "/etc/bind/named.conf.local";
 EOF
+# Overwrite the existing rndc key in the container
+IFEXISTS=$(kubectl get configmap | grep rndc-key)
+if [ ! -z "${IFEXISTS}" ]; then 
+  kubectl delete configmap rndc-key
+fi
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rndc-key
+data:
+  rndc.key: |
+    ${EXTERNALDNSKEY}
+EOF
+IFEXISTS=$(kubectl get configmap | grep named-conf-options)
+if [ ! -z "${IFEXISTS}" ]; then 
+  kubectl delete configmap named-conf-options
+fi
 
 # Create a named.conf.options configMap
 cat <<EOF | kubectl apply -f -
@@ -59,7 +83,7 @@ data:
       listen-on    { any; };
       pid-file "/var/run/named/named.pid";
       allow-query { any; };
-      allow-transfer { none; };
+      allow-transfer { any; };
       recursion no;
       auth-nxdomain yes;
     };
@@ -99,6 +123,11 @@ sudo mv ${DOMAIN}.k8s.zone ${BASE}/bind/${DOMAIN}.k8s.zone
 # give this mount to the bind user
 sudo chown -R  100:101 ${BASE}/bind/
 
+IFEXISTS=$(kubectl get configmap | grep named-conf-local)
+if [ ! -z "${IFEXISTS}" ]; then 
+  kubectl delete configmap named-conf-local
+fi
+
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -112,33 +141,63 @@ data:
 EOF
 RESET=$(kubectl get services | grep 'bind-service')
 if [ ! -z "${RESET}" ]; then
+  echo "Deleting previous bind-service"
   kubectl delete service bind-service
+fi
+RESET=$(kubectl get deployment | grep 'bind-service')
+if [ ! -z "${RESET}" ]; then
+  echo "Deleting previous bind-service deployment"
+  kubectl delete deployment bind-service
 fi
 kubectl apply -f yaml/bind-deployment.yaml
 kubectl expose deployment bind-service --type=LoadBalancer --name=bind-service
 
 #kubectl logs `kubectl get pods | grep bind | awk '{print $1}'`
-
+echo "Waiting for nameserver to become available"
 kubectl describe services bind-service
-sleep 3
+while [ -z "${NSIP}" ]
+do
 NSIP=$(kubectl describe services bind-service | grep 'LoadBalancer Ingress' | awk '{print $3}')
-echo Attempting to lookup the nameserver on ${NSIP}
+if [ ! -z "${NSIP}" ]; then
+  echo "Got name server IP: ${NSIP}"
+else
+  sleep 3
+  echo -n .
+fi
+done
 echo nslookup ns.k8s.${DOMAIN} ${NSIP}
 nslookup ns.k8s.${DOMAIN} ${NSIP}
+
+#if [ ! -z "${DIG}" ]; then
+#echo Attempting an AXFR request for ns.k8s.${DOMAIN} ${NSIP}
+#dig @${NSIP} -t AXFR k8s.${DOMAIN} -y hmac-sha256:externaldns:${SECRET}
+#else
+#echo "Cannot test the bind installation - no dig"
+#fi
+
+RESET=$(kubectl get deployments | grep 'external-dns')
+if [ ! -z "${RESET}" ]; then
+  kubectl delete deployment external-dns
+fi
+# We are going to tell external-dns to query the PODIP because we can't expose both UDP and TCP with the loadbalancer
+echo "Waiting for PODIP ..."
+while [ -z "${PODIP}" ]
+do
+PODIP=$(kubectl get pods -o yaml | grep podIP: | grep -v f | awk '{print $2}'| head -n 1)
+if [ ! -z "${PODIP}" ]; then
+  echo "Got PODIP ${PODIP}"
+else
+sleep 3
+echo -n .
+fi
+done
+echo "Installing external-dns"
 # Install external-dns
 cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: external-dns
-  labels:
-    name: external-dns
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: external-dns
-  namespace: external-dns
 spec:
   selector:
     matchLabels:
@@ -152,15 +211,16 @@ spec:
       - name: external-dns
         image: k8s.gcr.io/external-dns/external-dns:v0.7.3
         args:
-        - --txt-owner-id=k8s
-        - --provider=rfc2136
-        - --rfc2136-host=${NSIP}
-        - --rfc2136-port=53
-        - --rfc2136-zone=${DOMAIN}
-        - --rfc2136-tsig-secret=${SECRET}
-        - --rfc2136-tsig-secret-alg=hmac-sha256
-        - --rfc2136-tsig-keyname=externaldns
+        - --registry txt
+        - --txt-owner-id externaldns
+        - --provider rfc2136
+        - --rfc2136-zone k8s.${DOMAIN}
+        - --rfc2136-tsig-secret ${SECRET}
+        - --rfc2136-tsig-secret-alg hmac-sha256
+        - --rfc2136-tsig-keyname externaldns
         - --rfc2136-tsig-axfr
-        - --source=ingress
-        - --domain-filter=${DOMAIN}
+        - --source service
+        - --domain-filter k8s.${DOMAIN}
+        - --rfc2136-host ${PODIP}
+        - --rfc2136-port=53
 EOF
