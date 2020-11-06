@@ -23,8 +23,11 @@ fi
 
 # We'll download the container in advance so that we can generate a proper key
 echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
-EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
-
+EDNS=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns)
+EXTERNALDNSKEY=$(echo ${EDNS} | sed 's/\t/      /g' | sed 's/};/      };/g')
+SECRET=$(echo ${EDNS}| awk '{print $7}' | sed 's/"//g')
+#echo SECRET is ${SECRET}
+#echo EDNS is ${EDNS}
 # Create a named.conf configMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -122,3 +125,42 @@ NSIP=$(kubectl describe services bind-service | grep 'LoadBalancer Ingress' | aw
 echo Attempting to lookup the nameserver on ${NSIP}
 echo nslookup ns.k8s.${DOMAIN} ${NSIP}
 nslookup ns.k8s.${DOMAIN} ${NSIP}
+# Install external-dns
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+  labels:
+    name: external-dns
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-dns
+  namespace: external-dns
+spec:
+  selector:
+    matchLabels:
+      app: external-dns
+  template:
+    metadata:
+      labels:
+        app: external-dns
+    spec:
+      containers:
+      - name: external-dns
+        image: k8s.gcr.io/external-dns/external-dns:v0.7.3
+        args:
+        - --txt-owner-id=k8s
+        - --provider=rfc2136
+        - --rfc2136-host=${NSIP}
+        - --rfc2136-port=53
+        - --rfc2136-zone=${DOMAIN}
+        - --rfc2136-tsig-secret=${SECRET}
+        - --rfc2136-tsig-secret-alg=hmac-sha256
+        - --rfc2136-tsig-keyname=externaldns
+        - --rfc2136-tsig-axfr
+        - --source=ingress
+        - --domain-filter=${DOMAIN}
+EOF
