@@ -106,11 +106,11 @@ EOF
 # Move the zone file into place
 sudo mv k8s.zone ${BASE}/bind/k8s.zone
 
-# NOTE: We are supplying the expected IP for the nameserver here.  It will be updated later
+# NOTE: We are deliberately supplying an invalid IP for the nameserver here.  It will be updated later
 cat <<EOF > ./${DOMAIN}.k8s.zone
 \$TTL 60 ; 1 minute
 @        IN SOA  k8s.${DOMAIN}. root.k8s.${DOMAIN}. (
-             16         ; serial
+              1         ; serial
              60         ; refresh (1 minute)
              60         ; retry (1 minute)
              60         ; expire (1 minute)
@@ -120,6 +120,8 @@ cat <<EOF > ./${DOMAIN}.k8s.zone
 ns           A       172.20.1.1
 EOF
 sudo mv ${DOMAIN}.k8s.zone ${BASE}/bind/${DOMAIN}.k8s.zone
+
+
 # give this mount to the bind user
 sudo chown -R  100:101 ${BASE}/bind/
 
@@ -165,8 +167,6 @@ else
   echo -n .
 fi
 done
-echo nslookup ns.k8s.${DOMAIN} ${NSIP}
-nslookup ns.k8s.${DOMAIN} ${NSIP}
 
 #if [ ! -z "${DIG}" ]; then
 #echo Attempting an AXFR request for ns.k8s.${DOMAIN} ${NSIP}
@@ -268,3 +268,22 @@ spec:
         - --rfc2136-host=${PODIP}
         - --rfc2136-port=53
 EOF
+
+kubectl apply -f ./produce-an-a.yaml
+
+netcat -zvuw0 172.20.1.1 53
+echo nslookup ns.k8s.${DOMAIN} ${NSIP}
+nslookup ns.k8s.${DOMAIN} ${NSIP}
+
+echo "Waiting for nginx ip to appear in BIND"
+WAITFOR=""
+while [ -z "${WAITFOR}" ]
+do
+WAITFOR=$(nslookup nginx.k8s.${DOMAIN} ${NSIP} | grep Name: | grep nginx)
+if [ -z "${WAITFOR}" ]; then
+  sleep 3
+  echo -n .
+fi
+done
+echo nslookup nginx.k8s.${DOMAIN} ${NSIP}
+nslookup nginx.k8s.${DOMAIN} ${NSIP}
