@@ -150,7 +150,7 @@ if [ ! -z "${RESET}" ]; then
   kubectl delete deployment bind-service
 fi
 kubectl apply -f yaml/bind-deployment.yaml
-kubectl expose deployment bind-service --type=LoadBalancer --name=bind-service
+#kubectl expose deployment bind-service --type=LoadBalancer --name=bind-service
 
 #kubectl logs `kubectl get pods | grep bind | awk '{print $1}'`
 echo "Waiting for nameserver to become available"
@@ -192,8 +192,51 @@ echo -n .
 fi
 done
 echo "Installing external-dns"
-# Install external-dns
 cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  - pods
+  - nodes
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - extensions
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-dns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns
+subjects:
+- kind: ServiceAccount
+  name: external-dns
+  namespace: default
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -207,20 +250,21 @@ spec:
       labels:
         app: external-dns
     spec:
+      serviceAccountName: external-dns
       containers:
       - name: external-dns
         image: k8s.gcr.io/external-dns/external-dns:v0.7.3
         args:
-        - --registry txt
-        - --txt-owner-id externaldns
-        - --provider rfc2136
-        - --rfc2136-zone k8s.${DOMAIN}
-        - --rfc2136-tsig-secret ${SECRET}
-        - --rfc2136-tsig-secret-alg hmac-sha256
-        - --rfc2136-tsig-keyname externaldns
+        - --registry=txt
+        - --txt-owner-id=external-dns
+        - --provider=rfc2136
+        - --rfc2136-zone=k8s.${DOMAIN}
+        - --rfc2136-tsig-secret=${SECRET}
+        - --rfc2136-tsig-secret-alg=hmac-sha256
+        - --rfc2136-tsig-keyname=externaldns
         - --rfc2136-tsig-axfr
-        - --source service
-        - --domain-filter k8s.${DOMAIN}
-        - --rfc2136-host ${PODIP}
+        - --source=service
+        - --domain-filter=k8s.${DOMAIN}
+        - --rfc2136-host=${PODIP}
         - --rfc2136-port=53
 EOF

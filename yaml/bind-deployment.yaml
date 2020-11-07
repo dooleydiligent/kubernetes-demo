@@ -46,9 +46,9 @@ spec:
         - name: bind-service
           image: ventz/bind:9.16.6-r0
           ports:
-            - name: domain-udp
-              containerPort: 53
-              protocol: UDP
+          - name: domain-udp
+            containerPort: 53
+            protocol: UDP
           volumeMounts:
             - name: bind-var-store
               mountPath: "/var/cache/bind"
@@ -96,3 +96,20 @@ spec:
             items:
               - key: rndc.key
                 path: rndc.key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bind-service
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: ns.k8s.kubernetes.cluster
+    external-dns.alpha.kubernetes.io/ttl: "300"
+spec:
+  type: LoadBalancer
+  ports:
+  - name: dns
+    port: 53
+    protocol: UDP
+    targetPort: 53
+  selector:
+    app: bind-service

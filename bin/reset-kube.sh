@@ -97,7 +97,16 @@ EOF
 # Show the bearer token
 kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin-user | awk '{print $1}')
 # wait a moment
-sleep 3
+echo "Waiting for the dashboard external IP to be assigned"
+while [ -z "${DASHBOARD}" ]
+do
+DASHBOARD=$(kubectl -n kubernetes-dashboard get service kubernetes-dashboard | grep LoadBalancer | grep -v ending | awk '{print $4}')
+if [ ! -z "${DASHBOARD}" ]; then
+  echo "Dashboard running at ${DASHBOARD}"
+else
+  sleep 3
+  echo -n .
+fi
+done
 # Show what port the dashboard is listening on
 kubectl -n kubernetes-dashboard get service kubernetes-dashboard
-
