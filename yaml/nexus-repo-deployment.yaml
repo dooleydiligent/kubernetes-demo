@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nexus-store
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 20Gi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: "/mnt/disks/k8s-storage/nexus"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-store
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-repo
+  labels:
+    app: nexus-repo
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: nexus-repo.k8s.kubernetes.cluster
+      external-dns.alpha.kubernetes.io/ttl: "300"  
+spec:
+  type: LoadBalancer
+  ports:
+  - name: https
+    protocol: TCP
+    port: 443
+    targetPort: 8443
+  selector:
+    app: nexus-repo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docker-repo
+  labels:
+    app: docker-repo
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 443
+    targetPort: 5000
+    name: https
+  selector:
+    app: nexus-repo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-repo
+  labels:
+    app: nexus-repo
+spec:
+  selector:
+    matchLabels:
+      app: nexus-repo
+  template:
+    metadata:
+      labels:
+        app: nexus-repo
+    spec:
+      containers:
+      - name: nexus-repo
+        image: sonatype/nexus3:3.28.1
+        ports:
+        - containerPort: 443
+        volumeMounts:
+        - name: nexus-store
+          mountPath: "/nexus-data"
+      volumes:
+      - name: nexus-store
+        persistentVolumeClaim:
+          claimName: nexus-store

@@ -3,12 +3,6 @@
 
 . ./etc/kube.conf
 
-#set -x
-#DIG=$(which dig)
-#if [ -z "${DIG}" ]; then
-#  echo You must have dig to test the bind installation properly
-#fi
-
 if [ -z "${BASE}" ]; then
   echo BASE is not set in ./kube.conf
   exit 0
