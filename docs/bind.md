@@ -31,7 +31,7 @@ fi
 We'll download the container in advance so that we can generate a proper key
 ```
 echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
-EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
+EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-md5 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
 ```
 Create a named.conf configMap
 ```

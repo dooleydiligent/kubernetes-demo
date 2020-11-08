@@ -142,3 +142,14 @@ EOF
 
 kubectl get service | grep '\-repo'
 echo "After nexus has booted the admin password will be at ${BASE}/nexus/admin.password"
+# externaldns doesn't assign the ip to docker-repo so we'll  do that here
+BINDIP=$(kubectl get services | grep bind-service | awk '{print $3}')
+DOCKERIP=$(kubectl get service | grep 'docker-repo' | awk '{print $4}')
+SECRET=$(kubectl get configmap rndc-key -o jsonpath='{@.data}' | sed 's/\\n//g' | sed 's/\\//g' | sed 's/"//g' | sed 's/;//g' | awk '{print $7}')
+echo ${SECRET}
+cat <<EOF | nsupdate -d -y externaldns:${SECRET} --
+server ${BINDIP}
+update add docker-repo.k8s.${DOMAIN} 300 A ${DOCKERIP}
+send
+EOF
+nslookup docker-repo.k8s.${DOMAIN} ${BINDIP}

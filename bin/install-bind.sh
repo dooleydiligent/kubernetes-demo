@@ -21,7 +21,7 @@ fi
 
 # We'll download the container in advance so that we can generate a proper key
 echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
-EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-sha256 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
+EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-md5 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
 SECRET=$(echo ${EXTERNALDNSKEY} | sed 's/"/ /'g | awk '{print $7}')
 IFEXISTS=$(kubectl get configmap | grep named-conf)
 if [ ! -z "${IFEXISTS}" ]; then 
@@ -164,7 +164,7 @@ done
 
 #if [ ! -z "${DIG}" ]; then
 #echo Attempting an AXFR request for ns.k8s.${DOMAIN} ${NSIP}
-#dig @${NSIP} -t AXFR k8s.${DOMAIN} -y hmac-sha256:externaldns:${SECRET}
+#dig @${NSIP} -t AXFR k8s.${DOMAIN} -y hmac-md5:externaldns:${SECRET}
 #else
 #echo "Cannot test the bind installation - no dig"
 #fi
@@ -254,7 +254,7 @@ spec:
         - --provider=rfc2136
         - --rfc2136-zone=k8s.${DOMAIN}
         - --rfc2136-tsig-secret=${SECRET}
-        - --rfc2136-tsig-secret-alg=hmac-sha256
+        - --rfc2136-tsig-secret-alg=hmac-md5
         - --rfc2136-tsig-keyname=externaldns
         - --rfc2136-tsig-axfr
         - --source=service
