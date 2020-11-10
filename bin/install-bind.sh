@@ -263,21 +263,21 @@ spec:
         - --rfc2136-port=53
 EOF
 
-kubectl apply -f ./produce-an-a.yaml
+#kubectl apply -f ./produce-an-a.yaml
 
 netcat -zvuw0 172.20.1.1 53
 echo nslookup ns.k8s.${DOMAIN} ${NSIP}
 nslookup ns.k8s.${DOMAIN} ${NSIP}
 
-echo "Waiting for nginx ip to appear in BIND"
-WAITFOR=""
-while [ -z "${WAITFOR}" ]
-do
-WAITFOR=$(nslookup nginx.k8s.${DOMAIN} ${NSIP} | grep Name: | grep nginx)
-if [ -z "${WAITFOR}" ]; then
-  sleep 3
-  echo -n .
-fi
-done
-echo nslookup nginx.k8s.${DOMAIN} ${NSIP}
-nslookup nginx.k8s.${DOMAIN} ${NSIP}
+#echo "Waiting for nginx ip to appear in BIND"
+#WAITFOR=""
+#while [ -z "${WAITFOR}" ]
+#do
+#WAITFOR=$(nslookup nginx.k8s.${DOMAIN} ${NSIP} | grep Name: | grep nginx)
+#if [ -z "${WAITFOR}" ]; then
+#  sleep 3
+#  echo -n .
+#fi
+#done
+#echo nslookup nginx.k8s.${DOMAIN} ${NSIP}
+#nslookup nginx.k8s.${DOMAIN} ${NSIP}
