@@ -45,16 +45,16 @@ if [ -d ${BASE}/nexus ]; then
 echo "Removing nexus installation at ${BASE}/nexus"
 rm -rf ${BASE}/nexus >/dev/null
 fi
+if [ -d /etc/docker/certs.d/docker-repo.k8s.${DOMAIN} ]; then
+RESTART_REQUIRED=true
+echo "Removing docker ssl certificates at /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}"
+rm -rf /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}
+fi
+
 echo "Recreating nexus installation"
 mkdir -p ${BASE}/nexus >/dev/null
 if [ ! -d "${BASE}/nexus" ]; then
   echo Could not create nexus folder in ${BASE}
-  exit 0
-fi
-
-mkdir -p ${BASE}/secrets >/dev/null
-if [ ! -d "${BASE}/secrets" ]; then
-  echo Could not create secrets folder in ${BASE}
   exit 0
 fi
 
@@ -69,10 +69,10 @@ mv ./nexus.properties ${BASE}/nexus/etc
 
 if [ ! -f ${BASE}/nexus/etc/ssl/keystore.jks ]; then
 echo "Regenerating nexus keystore"
-keytool -genkeypair -keystore ./keystore.jks -storepass password -alias ${DOMAIN} \
- -keyalg RSA -keysize 2048 -validity 5000 -keypass password \
+keytool -genkeypair -keystore ./keystore.jks -storepass password -keypass password -alias jetty \
+ -keyalg RSA -keysize 2048 -validity 5000 \
  -dname "CN=*.k8s.${DOMAIN}, OU=Sonatype, O=Sonatype, L=Unspecified, ST=Unspecified, C=US" \
- -ext "SAN=DNS:nexus-repo.k8s.${DOMAIN},DNS:docker-repo.k8s.${DOMAIN}"
+ -ext "SAN=DNS:nexus-repo.k8s.${DOMAIN},DNS:docker-repo.k8s.${DOMAIN},DNS:k8s.${DOMAIN}" -ext "BC=ca:true"
 mv keystore.jks ${BASE}/nexus/etc/ssl
 fi
 chown -R 200:200 ${BASE}/nexus
@@ -165,7 +165,7 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-  - port: 5000
+  - port: 443
     targetPort: 5000
     name: https
   selector:
@@ -214,12 +214,28 @@ done
 
 # Make the local docker daemon respect the CA
 echo "Adding a trusted certificate to /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}"
-mkdir -p /etc/docker/certs.d/docker-repo.k8s.${DOMAIN} >> /dev/null
-keytool -printcert -sslserver ${DOCKERIP}:443 -rfc >/etc/docker/certs.d/docker-repo.k8s.${DOMAIN}/ca.crt
+mkdir -p /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}:443 >> /dev/null
+keytool -printcert -sslserver docker-repo.k8s.${DOMAIN}:443 -rfc >/etc/docker/certs.d/docker-repo.k8s.${DOMAIN}/ca.crt
+
 # NOTE: the docker daemon must now be restarted for this to work
 echo "Provisioning nexus"
 bin/provision-nexus.sh
 PASSWORD=$(cat ${BASE}/nexus/admin.password)
+if [ ! -z "${RESTART_REQUIRED}" ]; then
+ echo "Restarting the docker daemon in order to use the newly created SSL certificates."
+ echo "This will take many minutes"
+ systemctl restart docker
+fi
+WAITFOR=""
+while [ -z "${WAITFOR}" ]
+do
+  WAITFOR=$(nc -zv -q -1 nexus-repo.k8s.${DOMAIN} 443 2>&1 | grep succeeded)
+  if [ -z "${WAITFOR}" ]; then
+    sleep 15
+    echo -n .
+  fi
+done
+
 echo "Logging into nexus docker repo using password: ${PASSWORD}"
 echo ${PASSWORD} | docker login --username admin --password-stdin docker-repo.k8s.${DOMAIN}
 
@@ -293,5 +309,5 @@ spec:
     port: 3000
     targetPort: 3000
 EOF
-echo "You can now access the application at the IP address below"
+echo "You can now access the application at http://hello-world.k8s.${DOMAIN}:3000 or the ip below"
 kubectl get service | grep hello-world

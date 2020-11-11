@@ -29,16 +29,16 @@ function addAndRunScript {
   # using grape config that points to local Maven repo and Central Repository , default grape config fails on some downloads although artifacts are in Central
   # change the grapeConfig file to point to your repository manager, if you are already running one in your organization
   groovy -Djavax.net.ssl.trustStorePassword=password -Djavax.net.ssl.trustStore=${BASE}/nexus/etc/ssl/keystore.jks -Dgroovy.grape.report.downloads=true -Dgrape.config=grapeConfig.xml bin/addUpdateScript.groovy -u "$username" -p "$password" -n "$name" -f "$file" -h "$host"
-  printf "\nExecuting $file as $name\n\n"
-  echo curl --cacert /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}/ca.crt -v -X POST -u $username:$password --header "Content-Type: text/plain" "$host/service/rest/v1/script/$name/run"
+  echo "Executing $file as $name"
+  echo quit | openssl s_client -showcerts -servername docker-repo.k8s.kubernetes.cluster  -connect nexus-repo.k8s.kubernetes.cluster:443 > /tmp/docker-cacert.pem
+  echo curl --cacert /tmp/docker-cacert.pem -v -X POST -u $username:$password --header "Content-Type: text/plain" "$host/service/rest/v1/script/$name/run"
 
-  curl --cacert /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}/ca.crt -v -X POST -u $username:$password --header "Content-Type: text/plain" "$host/service/rest/v1/script/$name/run"
-  printf "\nSuccessfully executed $name script\n\n\n"
+  curl --cacert /tmp/docker-cacert.pem -v -X POST -u $username:$password --header "Content-Type: text/plain" "$host/service/rest/v1/script/$name/run"
+  echo "Successfully executed $name script"
 }
 
-printf "Provisioning Integration API Scripts Starting \n\n" 
-printf "Publishing and executing on $host\n"
+echo "Provisioning Integration API Scripts publishing and executing on $host"
 
 addAndRunScript npmAndDocker bin/npmAndDockerRepositories.groovy
 
-printf "\nProvisioning Scripts Completed\n\n"
+echo "Provisioning Scripts Completed"
