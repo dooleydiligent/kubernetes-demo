@@ -46,7 +46,6 @@ echo "Removing nexus installation at ${BASE}/nexus"
 rm -rf ${BASE}/nexus >/dev/null
 fi
 if [ -d /etc/docker/certs.d/docker-repo.k8s.${DOMAIN} ]; then
-RESTART_REQUIRED=true
 echo "Removing docker ssl certificates at /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}"
 rm -rf /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}
 fi
@@ -180,13 +179,18 @@ echo "You must change the password the first time you log in"
 BINDIP=$(kubectl get services | grep bind-service | awk '{print $3}')
 DOCKERIP=$(kubectl get service | grep 'docker-repo' | awk '{print $4}')
 SECRET=$(kubectl get configmap rndc-key -o jsonpath='{@.data}' | sed 's/\\n//g' | sed 's/\\//g' | sed 's/"//g' | sed 's/;//g' | awk '{print $7}')
+# Also having problem with nexus-repo
+NEXUSIP=$(kubectl get service | grep 'nexus-repo' | awk '{print $4}')
 
 echo "Using RNDC key with BIND: ${SECRET}"
 echo "Adding a BIND entry for docker-repo.k8s.${DOMAIN}"
-
+# Note we are using the POD IP for BIND instead of the public ip
 cat <<EOF | nsupdate -L 0 -y externaldns:${SECRET} > /dev/null 2>&1 --
 server ${BINDIP}
-update add docker-repo.k8s.${DOMAIN} 300 A ${DOCKERIP}
+update delete docker-repo.k8s.${DOMAIN}. A
+update delete nexus-repo.k8s.${DOMAIN}. A
+update add docker-repo.k8s.${DOMAIN}. 300 A ${DOCKERIP}
+update add nexus-repo.k8s.${DOMAIN}. 300 A ${NEXUSIP}
 send
 EOF
 echo "Waiting for nexus to accept connections.  This will take a while"
@@ -212,20 +216,29 @@ if [ -z "${WAITFOR}" ]; then
 fi
 done
 
-# Make the local docker daemon respect the CA
-echo "Adding a trusted certificate to /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}"
-mkdir -p /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}:443 >> /dev/null
-keytool -printcert -sslserver docker-repo.k8s.${DOMAIN}:443 -rfc >/etc/docker/certs.d/docker-repo.k8s.${DOMAIN}/ca.crt
-
-# NOTE: the docker daemon must now be restarted for this to work
 echo "Provisioning nexus"
 bin/provision-nexus.sh
-PASSWORD=$(cat ${BASE}/nexus/admin.password)
-if [ ! -z "${RESTART_REQUIRED}" ]; then
- echo "Restarting the docker daemon in order to use the newly created SSL certificates."
- echo "This will take many minutes"
- systemctl restart docker
+
+# Make the local docker daemon respect the CA
+echo "Adding a trusted certificate to /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}"
+mkdir -p /etc/docker/certs.d/docker-repo.k8s.${DOMAIN} >> /dev/null
+VALIDCERT=$(keytool -printcert -sslserver docker-repo.k8s.${DOMAIN} -rfc | grep 'BEGIN CERTIFICATE')
+while [ -z "${VALIDCERT}" ]
+do
+VALIDCERT=$(keytool -printcert -sslserver docker-repo.k8s.${DOMAIN} -rfc | grep 'BEGIN CERTIFICATE')
+if [ -z "${VALIDCERT}" ]; then
+  sleep 3
+  echo -n .
 fi
+done
+sudo keytool -printcert -sslserver docker-repo.k8s.${DOMAIN} -rfc > /etc/docker/certs.d/docker-repo.k8s.${DOMAIN}/ca.crt
+
+PASSWORD=$(cat ${BASE}/nexus/admin.password)
+#if [ ! -z "${RESTART_REQUIRED}" ]; then
+# echo "Restarting the docker daemon in order to use the newly created SSL certificates."
+# echo "This will take many minutes"
+# systemctl restart docker
+#fi
 WAITFOR=""
 while [ -z "${WAITFOR}" ]
 do
@@ -249,7 +262,7 @@ WORKDIR /app
 ADD . /app/
 RUN npm init -y
 RUN echo "Consulting nexus-repo.k8s.${DOMAIN} for npm install ..."
-RUN npm install -y --registry=nexus-repo.k8s.${DOMAIN}/npm --save express
+RUN npm install -y --registry=https://nexus-repo.k8s.${DOMAIN}/npm --save express
 RUN cat <<EOF >index.js \
  const express = require('express'); \
  const app = express(); \
@@ -271,7 +284,7 @@ echo "Pushing the image to the local docker-repo.k8s.${DOMAIN} registry"
 docker push docker-repo.k8s.${DOMAIN}/hello-world:1.0
 
 echo "Deploying the application"
-cat <<EOF | kubectl -f -
+cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:

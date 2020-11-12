@@ -14,8 +14,10 @@ fi
 sudo systemctl stop kubelet.service
 sudo rm -rf /etc/kubernetes ~/.kube/config ~/.kube/cache /var/lib/etcd /var/lib/kubelet /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni /etc/cni/net.d
 sudo swapoff -a
-IP=$(ip -o addr show up primary scope global | grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
-
+# Try to detect the primary IP.  Can be overridden with an entry in kube.conf
+if [ -z "${IP}" ]; then
+  IP=$(ip -o addr show up primary scope global dynamic| grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
+fi
 echo Using external IP ${IP}
 
 sudo kubeadm init --apiserver-advertise-address ${IP} --pod-network-cidr=${PODNET} 

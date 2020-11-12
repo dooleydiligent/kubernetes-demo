@@ -13,6 +13,18 @@ if [ -z "${DOMAIN}" ]; then
   exit 0
 fi
 
+[ ! -f /etc/resolvconf/resolv.conf.d/head ] && "This script expects package resolvconf.  Please 'apt -y install resolvconf' to contine" && exit 0
+sudo chmod go+w /etc/resolvconf/resolv.conf.d/head
+sudo sed 's/nameserver 172.20.1.1//g' /etc/resolvconf/resolv.conf.d/head | \
+ sudo sed "s/search ${DOMAIN}//g" > /etc/resolvconf/resolv.conf.d/head 
+sudo resolvconf -u
+cat /etc/resolv.conf
+
+echo "Checking for previous installation"
+if [ -d ${BASE}/bind ]; then
+  echo "Removing previous installation"
+  sudo rm -rf ${BASE}/bind
+fi
 sudo mkdir -p ${BASE}/bind  >/dev/null
 if [ ! -d "${BASE}/bind" ]; then
   echo Could not create bind folder in ${BASE}/bind
@@ -20,13 +32,21 @@ if [ ! -d "${BASE}/bind" ]; then
 fi
 
 # We'll download the container in advance so that we can generate a proper key
-echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
+DOWNLOADED=$(docker image ls | grep ventz/bind)
+if [ -z "${DOWNLOADED}" ]; then
+  echo "Downloading ventz/bind:9.16.6-r0.  This will take some time"
+fi
+echo "Generating RNDC secret"
 EXTERNALDNSKEY=$(docker run --entrypoint /usr/sbin/tsig-keygen ventz/bind:9.16.6-r0 -a hmac-md5 externaldns | sed 's/\t/      /g' | sed 's/};/      };/g')
+echo "RNDC Key is ${EXTERNALDNSKEY}"
 SECRET=$(echo ${EXTERNALDNSKEY} | sed 's/"/ /'g | awk '{print $7}')
+echo "Checking for existing named-conf configmap"
 IFEXISTS=$(kubectl get configmap | grep named-conf)
-if [ ! -z "${IFEXISTS}" ]; then 
+if [ ! -z "${IFEXISTS}" ]; then
+  echo "Deleting previous installation of named-conf configmap"
   kubectl delete configmap named-conf
 fi
+echo "Creating named-conf configmap"
 # Create a named.conf configMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -44,11 +64,13 @@ data:
     include "/etc/bind/named.conf.local";
 EOF
 # Overwrite the existing rndc key in the container
+echo "Checking for configmap rndc-key"
 IFEXISTS=$(kubectl get configmap | grep rndc-key)
 if [ ! -z "${IFEXISTS}" ]; then 
+  echo "Deleting rndc-key configmap"
   kubectl delete configmap rndc-key
 fi
-
+echo "Creating rndc-key configmap"
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -58,11 +80,13 @@ data:
   rndc.key: |
     ${EXTERNALDNSKEY}
 EOF
+echo "Checking for configmap named-conf-options"
 IFEXISTS=$(kubectl get configmap | grep named-conf-options)
 if [ ! -z "${IFEXISTS}" ]; then 
+  echo "Deleting named-conf-options configmap"
   kubectl delete configmap named-conf-options
 fi
-
+echo "Creating named-conf-options configmap"
 # Create a named.conf.options configMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -82,7 +106,7 @@ data:
       auth-nxdomain yes;
     };
 EOF
-
+echo "Generating DNS zone files"
 # Create an authoritative zone file for the cluster
 cat <<EOF >./k8s.zone
 zone "k8s.${DOMAIN}" {
@@ -92,7 +116,7 @@ zone "k8s.${DOMAIN}" {
        key "externaldns";
    };
    update-policy {
-       grant externaldns zonesub ANY;
+       grant externaldns subdomain k8s.${DOMAIN}. ANY;
    };
 };
 EOF
@@ -110,20 +134,20 @@ cat <<EOF > ./${DOMAIN}.k8s.zone
              60         ; expire (1 minute)
              60         ; minimum (1 minute)
              )
-             NS      ns.k8s.${DOMAIN}.
-ns           A       172.20.1.1
+             IN NS   ns.k8s.${DOMAIN}.
+ns           IN A    172.20.1.1
 EOF
 sudo mv ${DOMAIN}.k8s.zone ${BASE}/bind/${DOMAIN}.k8s.zone
 
-
 # give this mount to the bind user
 sudo chown -R  100:101 ${BASE}/bind/
-
+echo "Checking for existing named-conf-local configmap"
 IFEXISTS=$(kubectl get configmap | grep named-conf-local)
 if [ ! -z "${IFEXISTS}" ]; then 
+  echo "Deleting previous configmap named-conf-local"
   kubectl delete configmap named-conf-local
 fi
-
+echo "Creating configmap named-conf-local"
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -135,16 +159,19 @@ data:
     include "/etc/bind/named.conf.rfc1918";
     include "/var/cache/bind/k8s.zone";
 EOF
+echo "Checking for existing BIND service"
 RESET=$(kubectl get services | grep 'bind-service')
 if [ ! -z "${RESET}" ]; then
   echo "Deleting previous bind-service"
   kubectl delete service bind-service
 fi
+echo "Checking for existing BIND deployment"
 RESET=$(kubectl get deployment | grep 'bind-service')
 if [ ! -z "${RESET}" ]; then
   echo "Deleting previous bind-service deployment"
   kubectl delete deployment bind-service
 fi
+echo "Deploying BIND"
 kubectl apply -f yaml/bind-deployment.yaml
 #kubectl expose deployment bind-service --type=LoadBalancer --name=bind-service
 
@@ -162,6 +189,11 @@ else
 fi
 done
 
+echo "Updating local /etc/resolv.conf"
+sudo echo "nameserver ${NSIP}" >>/etc/resolvconf/resolv.conf.d/head
+sudo echo "search ${DOMAIN}" >>/etc/resolvconf/resolv.conf.d/head
+sudo resolvconf -u
+cat /etc/resolv.conf
 #if [ ! -z "${DIG}" ]; then
 #echo Attempting an AXFR request for ns.k8s.${DOMAIN} ${NSIP}
 #dig @${NSIP} -t AXFR k8s.${DOMAIN} -y hmac-md5:externaldns:${SECRET}
@@ -181,8 +213,8 @@ PODIP=$(kubectl get pods -o yaml | grep podIP: | grep -v f | awk '{print $2}'| h
 if [ ! -z "${PODIP}" ]; then
   echo "Got PODIP ${PODIP}"
 else
-sleep 3
-echo -n .
+  sleep 3
+  echo -n .
 fi
 done
 echo "Installing external-dns"
@@ -264,20 +296,17 @@ spec:
 EOF
 
 #kubectl apply -f ./produce-an-a.yaml
-
-netcat -zvuw0 172.20.1.1 53
+echo "Waiting for BIND on ${NSIP}"
+WAITFOR=""
+while [ -z "${WAITFOR}" ]
+do
+WAITFOR=$(netcat -zvu ${NSIP} 53 2>&1 | grep succeeded)
+if [ ! -z "${WAITFOR}" ]; then
+  echo "BIND is listening on ${NSIP}"
+else
+  sleep 3
+  echo -n .
+fi
+done
 echo nslookup ns.k8s.${DOMAIN} ${NSIP}
 nslookup ns.k8s.${DOMAIN} ${NSIP}
-
-#echo "Waiting for nginx ip to appear in BIND"
-#WAITFOR=""
-#while [ -z "${WAITFOR}" ]
-#do
-#WAITFOR=$(nslookup nginx.k8s.${DOMAIN} ${NSIP} | grep Name: | grep nginx)
-#if [ -z "${WAITFOR}" ]; then
-#  sleep 3
-#  echo -n .
-#fi
-#done
-#echo nslookup nginx.k8s.${DOMAIN} ${NSIP}
-#nslookup nginx.k8s.${DOMAIN} ${NSIP}
