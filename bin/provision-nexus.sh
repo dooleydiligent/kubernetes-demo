@@ -24,18 +24,18 @@ host=https://nexus-repo.k8s.${DOMAIN}:443
 
 # add a script to the repository manager and run it
 function addAndRunScript {
-  name=npmAndDockerRepositories
-  file=$2
-  # using grape config that points to local Maven repo and Central Repository , default grape config fails on some downloads although artifacts are in Central
-  # change the grapeConfig file to point to your repository manager, if you are already running one in your organization
+  name=$(basename $1 | sed 's/\./ /g' | awk '{print $1}')
+  file=$(cat $1 | sed 's/"/\\"/g' | sed -z 's/\n/\\n/g')
+  echo '{"name":"'$name'","type":"groovy","content":"'$file'"}' > /tmp/payload
+
   # Generate a certificate from the docker host
-  echo quit | openssl s_client -showcerts -servername docker-repo.k8s.kubernetes.cluster  -connect nexus-repo.k8s.kubernetes.cluster:443 > /tmp/docker-cacert.pem
+  echo quit | openssl s_client -showcerts -servername docker-repo.k8s.${DOMAIN} -connect nexus-repo.k8s.${DOMAIN}:443 > /tmp/docker-cacert.pem
 
   # Post the script
   curl --cacert /tmp/docker-cacert.pem \
     -X POST -u $username:$password \
     --header "Content-Type: application/json" \
-    "$host/service/rest/v1/script" -d @$file
+    "$host/service/rest/v1/script" -d @/tmp/payload
 
   # Show the script
   curl --cacert /tmp/docker-cacert.pem \
@@ -43,19 +43,17 @@ function addAndRunScript {
   "$host/service/rest/v1/script"
 
   # Execute the script
-#  groovy -Djavax.net.ssl.trustStorePassword=password -Djavax.net.ssl.trustStore=${BASE}/nexus/etc/ssl/keystore.jks -Dgroovy.grape.report.downloads=true -Dgrape.config=grapeConfig.xml bin/addUpdateScript.groovy -u "$username" -p "$password" -n "$name" -f "$file" -h "$host"
   echo "Executing $file as $name"
   curl --cacert /tmp/docker-cacert.pem \
     -X POST -u $username:$password \
     --header "Content-Type: text/plain" \
     "$host/service/rest/v1/script/$name/run"
-
-#  curl --cacert /tmp/docker-cacert.pem -v -X POST -u $username:$password --header "Content-Type: text/plain" "$host/service/rest/v1/script/$name/run"
+  # TODO: Check the status codes after each call.  Hope is not a method
   echo "Successfully executed $name script"
 }
 
 echo "Provisioning Integration API Scripts publishing and executing on $host"
 
-addAndRunScript npmAndDocker bin/npmAndDockerRepositories.json
+addAndRunScript bin/npmAndDockerRepositories.groovy
 
 echo "Provisioning Scripts Completed"

@@ -1,3 +1,5 @@
+### Install nexus
+```
 #!/bin/bash
 
 [ ! -f ./etc/kube.conf ] && echo "This expects to be run from the root of the repository" && exit 0
@@ -9,8 +11,6 @@ GROOVY=$(which groovy)
 [ -z "${GROOVY}" ] && echo "You must have groovy installed for this step" && exit 0
 
 . ./etc/kube.conf 
-
-[ -f ./etc/kube.conf.local ] && . ./etc/kube.conf.local
 
 #set -x
 
@@ -324,3 +324,6 @@ spec:
 EOF
 echo "You can now access the application at http://hello-world.k8s.${DOMAIN}:3000 or the ip below"
 kubectl get service | grep hello-world
+
+```
+### BOOM!  

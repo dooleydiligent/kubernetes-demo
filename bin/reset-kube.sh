@@ -3,6 +3,8 @@
 
 . ./etc/kube.conf
 
+[ -f ./etc/kube.conf.local ] && . ./etc/kube.conf.local
+
 # More reading for dns
 # https://github.com/kubernetes-sigs/external-dns
 
@@ -14,7 +16,7 @@ fi
 sudo systemctl stop kubelet.service
 sudo rm -rf /etc/kubernetes ~/.kube/config ~/.kube/cache /var/lib/etcd /var/lib/kubelet /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni /etc/cni/net.d
 sudo swapoff -a
-# Try to detect the primary IP.  Can be overridden with an entry in kube.conf
+# Try to detect the primary IP.  Can be overridden with an entry in kube.conf.local
 if [ -z "${IP}" ]; then
   IP=$(ip -o addr show up primary scope global dynamic| grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
 fi

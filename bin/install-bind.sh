@@ -3,6 +3,14 @@
 
 . ./etc/kube.conf
 
+[ -f ./etc/kube.conf.local ] && . ./etc/kube.conf.local
+
+if [ -z "${IP}" ]; then
+  IP=$(ip -o addr show up primary scope global dynamic| grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
+fi
+
+echo Using external IP ${IP}
+
 if [ -z "${BASE}" ]; then
   echo BASE is not set in ./kube.conf
   exit 0
@@ -15,10 +23,9 @@ fi
 
 [ ! -f /etc/resolvconf/resolv.conf.d/head ] && "This script expects package resolvconf.  Please 'apt -y install resolvconf' to contine" && exit 0
 sudo chmod go+w /etc/resolvconf/resolv.conf.d/head
-sudo sed 's/nameserver 172.20.1.1//g' /etc/resolvconf/resolv.conf.d/head | \
+sudo sed 's/nameserver '${IP}'//g' /etc/resolvconf/resolv.conf.d/head | \
  sudo sed "s/search ${DOMAIN}//g" > /etc/resolvconf/resolv.conf.d/head 
 sudo resolvconf -u
-cat /etc/resolv.conf
 
 echo "Checking for previous installation"
 if [ -d ${BASE}/bind ]; then
@@ -59,7 +66,6 @@ data:
     controls {
       inet 0.0.0.0 allow { any; } keys { "externaldns"; };
     };
-    // include "/etc/bind/rndc.key";
     include "/etc/bind/named.conf.options";
     include "/etc/bind/named.conf.local";
 EOF
@@ -102,8 +108,11 @@ data:
       pid-file "/var/run/named/named.pid";
       allow-query { any; };
       allow-transfer { any; };
-      recursion no;
+      recursion yes;
       auth-nxdomain yes;
+      forwarders {
+        ${IP};
+      };
     };
 EOF
 echo "Generating DNS zone files"
