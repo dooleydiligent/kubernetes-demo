@@ -3,6 +3,8 @@
 
 . ./etc/kube.conf
 
+[ -f ./etc/kube.conf.local ] && . ./etc/kube.conf.local
+
 # More reading for dns
 # https://github.com/kubernetes-sigs/external-dns
 
@@ -14,8 +16,10 @@ fi
 sudo systemctl stop kubelet.service
 sudo rm -rf /etc/kubernetes ~/.kube/config ~/.kube/cache /var/lib/etcd /var/lib/kubelet /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni /etc/cni/net.d
 sudo swapoff -a
-IP=$(ip -o addr show up primary scope global | grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
-
+# Try to detect the primary IP.  Can be overridden with an entry in kube.conf.local
+if [ -z "${IP}" ]; then
+  IP=$(ip -o addr show up primary scope global dynamic| grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
+fi
 echo Using external IP ${IP}
 
 sudo kubeadm init --apiserver-advertise-address ${IP} --pod-network-cidr=${PODNET} 
@@ -97,7 +101,16 @@ EOF
 # Show the bearer token
 kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin-user | awk '{print $1}')
 # wait a moment
-sleep 3
+echo "Waiting for the dashboard external IP to be assigned"
+while [ -z "${DASHBOARD}" ]
+do
+DASHBOARD=$(kubectl -n kubernetes-dashboard get service kubernetes-dashboard | grep LoadBalancer | grep -v ending | awk '{print $4}')
+if [ ! -z "${DASHBOARD}" ]; then
+  echo "Dashboard running at ${DASHBOARD}"
+else
+  sleep 3
+  echo -n .
+fi
+done
 # Show what port the dashboard is listening on
 kubectl -n kubernetes-dashboard get service kubernetes-dashboard
-

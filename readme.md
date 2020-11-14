@@ -4,6 +4,14 @@ This is a brief introduction to [kubernetes](https://kubernetes.io/).
 
 *Beware* the code and commentary are probably full of inaccuracies and erroneous observations.
 
+*ALSO NOTE*  This demonstration is for educational purposes only.  You would not do this in a real production environment.
+
+In this demonstration we will 
+- Use a script to completely remove and then rebuild a single-node kubernetes cluster
+- Install BIND as a name server
+- Expose a nexus server for both npm and docker registry uses
+- Build and deploy a simple "hello world" application using the deployed services
+
 ## Install kubernetes
 
 I will assume you are using a recent (18.04+) version of ubuntu.  If you are using some other version of linux or unix then good on you.  These instructions will probably work for you, too.  Windows see [here](https://kubernetes.io/docs/setup/production-environment/windows/).
@@ -55,6 +63,9 @@ Read the contents of kube.conf
 [ ! -f ./etc/kube.conf ] && echo "This expects to be run from the root of the repository" && exit 0
 
 . ./etc/kube.conf
+# If you need to override IP then do it here
+[ -f ./etc/kube.conf.local ] && . ./etc/kube.conf.local
+
 ```
 Reset kubeadm
 ```
@@ -79,7 +90,11 @@ sudo swapoff -a
 Get the IP of the host we're working on.
 
 ```
-IP=$(ip -o addr show up primary scope global | head -1 | sed 's,/, ,g' | awk '{print $4}')
+# Try to detect the primary IP.  Can be overridden with an entry in kube.conf.local
+if [ -z "${IP}" ]; then
+  IP=$(ip -o addr show up primary scope global dynamic| grep -v flannel | head -1 | sed 's,/, ,g' | awk '{print $4}')
+fi
+echo Using external IP ${IP}
 ```
 Reinitialize kubernetes
 ```

@@ -1,0 +1,5 @@
+{
+  "name": "npmAndDockerRepositories",
+  "type": "groovy",
+  "content": "import groovy.xml.MarkupBuilder\nimport org.sonatype.nexus.blobstore.api.BlobStoreManager\ndef newRepositories = []\nnewRepositories << repository.createNpmProxy('npmjs-org', 'https://registry.npmjs.org')\nnewRepositories << repository.createNpmHosted('npm-internal')\ndef npmMembers = ['npmjs-org', 'npm-internal' ]\nnewRepositories << repository.createNpmGroup('npm', npmMembers)\nrepository.createDockerHosted('docker-internal', null, null)\nrepository.createDockerProxy('docker-proxy','https://registry-1.docker.io','REGISTRY',null,null,null,BlobStoreManager.DEFAULT_BLOBSTORE_NAME,true,true)\ndef groupMembers = ['docker-proxy', 'docker-internal']\nrepository.createDockerGroup('docker-all', null, 5000, groupMembers, true)\nlog.info('Script npmAndDockerRepositories completed successfully')\ndef writer = new StringWriter()\ndef xml = new MarkupBuilder(writer)\nxml.repositories() {\n  newRepositories.each { repo ->\n    repository(name: repo.name, url: repo.url)\n  }\n}\nreturn writer.toString()"
+}
